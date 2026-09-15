@@ -134,7 +134,9 @@ if ((Test-Path $localConfig) -or (Test-Path $altLocalConfig)) {
     Step 'config.local.ini already exists; leaving it untouched'
 } else {
     Step 'Writing config.local.ini'
-    $prefer = if ($classicOutlook) { 'classic' } else { 'new' }
+    # New Outlook is preferred when present; a classic install can exist
+    # unconfigured and only show a profile/error dialog at launch.
+    $prefer = if ($newOutlookAppId) { 'new' } else { 'classic' }
     @"
 [General]
 Hotkey=^!m

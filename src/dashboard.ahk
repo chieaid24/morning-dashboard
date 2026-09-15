@@ -74,6 +74,30 @@ ToggleDashboard() {
 
 ; ------------------------------------------------------------------- config
 
+; The Windows INI APIs (IniRead/IniWrite) fail on some network paths
+; (e.g. \\wsl.localhost), so all INI access uses plain file reads/writes.
+IniLoad(path) {
+    data := Map()
+    section := ""
+    try content := FileRead(path)
+    catch
+        return data
+    loop parse content, "`n", "`r" {
+        line := Trim(A_LoopField)
+        if line = "" || SubStr(line, 1, 1) = ";"
+            continue
+        if SubStr(line, 1, 1) = "[" && SubStr(line, -1) = "]" {
+            section := SubStr(line, 2, StrLen(line) - 2)
+            continue
+        }
+        pos := InStr(line, "=")
+        if !pos
+            continue
+        data[section "." Trim(SubStr(line, 1, pos - 1))] := Trim(SubStr(line, pos + 1))
+    }
+    return data
+}
+
 ConfigPath() {
     for p in [RepoRoot "\config.local.ini", RepoRoot "\config\config.local.ini"]
         if FileExist(p)
@@ -82,24 +106,38 @@ ConfigPath() {
 }
 
 Cfg(section, key, default := "") {
-    try
-        return IniRead(ConfigPath(), section, key, default)
-    catch
-        return default
+    global ConfigCache, ConfigCachePath, ConfigCacheTime
+    path := ConfigPath()
+    t := ""
+    try t := FileGetTime(path)
+    if !IsSet(ConfigCache) || ConfigCachePath != path || ConfigCacheTime != t {
+        ConfigCache := IniLoad(path)
+        ConfigCachePath := path
+        ConfigCacheTime := t
+    }
+    k := section "." key
+    return ConfigCache.Has(k) && ConfigCache[k] != "" ? ConfigCache[k] : default
 }
 
 ; ------------------------------------------------------------ session state
 
 StateWrite(key, value) {
     DirCreate RepoRoot "\.state"
-    IniWrite value, StateFile, "Session", key
+    data := IniLoad(StateFile)
+    data["Session." key] := value
+    out := "[Session]`n"
+    for k, v in data
+        if SubStr(k, 1, 8) = "Session."
+            out .= SubStr(k, 9) "=" v "`n"
+    f := FileOpen(StateFile, "w")
+    f.Write(out)
+    f.Close()
 }
 
 StateRead(key, default := "") {
-    try
-        return IniRead(StateFile, "Session", key, default)
-    catch
-        return default
+    data := IniLoad(StateFile)
+    k := "Session." key
+    return data.Has(k) && data[k] != "" ? data[k] : default
 }
 
 StateReadInt(key) {
@@ -157,12 +195,14 @@ SnapshotWindows(winTitle) {
 
 ; Returns the first window of winTitle not present in `before`, preferring
 ; one whose title contains `needle`. 0 on timeout.
-WaitNewWindow(winTitle, before, needle := "", timeoutMs := 30000) {
+WaitNewWindow(winTitle, before, needle := "", timeoutMs := 30000, excludeClass := "") {
     deadline := A_TickCount + timeoutMs
     fallback := 0
     while A_TickCount < deadline {
         for hwnd in WinGetList(winTitle) {
             if before.Has(hwnd)
+                continue
+            if excludeClass != "" && WindowHasClass(hwnd, excludeClass)
                 continue
             if needle = ""
                 return hwnd
@@ -176,6 +216,12 @@ WaitNewWindow(winTitle, before, needle := "", timeoutMs := 30000) {
         Sleep 250
     }
     return fallback
+}
+
+WindowHasClass(hwnd, cls) {
+    c := ""
+    try c := WinGetClass("ahk_id " hwnd)
+    return c = cls
 }
 
 MoveWindowTo(hwnd, x, y, w, h) {
@@ -266,8 +312,12 @@ OpenScheduleWindow() {
     return LaunchBraveWindow('--app="' FileUrl(viewer) '"', "Morning Dashboard Schedule")
 }
 
+; Skips #32770 dialogs (reminders, error prompts) - only a real main window
+; should be reused or tracked.
 FindOutlookMainWindow() {
     for hwnd in WinGetList("ahk_group MD_Outlook") {
+        if WindowHasClass(hwnd, "#32770")
+            continue
         title := ""
         try title := WinGetTitle("ahk_id " hwnd)
         if title != ""
@@ -309,7 +359,7 @@ AcquireOutlook(&owned, &px, &py, &pw, &ph, &pmm) {
     owned := true
     before := SnapshotWindows("ahk_group MD_Outlook")
     LaunchOutlook()
-    hwnd := WaitNewWindow("ahk_group MD_Outlook", before, "", 45000)
+    hwnd := WaitNewWindow("ahk_group MD_Outlook", before, "", 45000, "#32770")
     if !hwnd
         throw Error("Outlook window did not appear.")
     return hwnd
@@ -320,8 +370,12 @@ RestoreOutlook(hwnd, x, y, w, h, mm) {
         return
     try {
         WinRestore "ahk_id " hwnd
-        if w > 0 && h > 0
+        if w > 0 && h > 0 {
+            ; Twice: apps that rescale on a monitor DPI change resize
+            ; themselves after the first move; the second pass corrects it.
             WinMove x, y, w, h, "ahk_id " hwnd
+            WinMove x, y, w, h, "ahk_id " hwnd
+        }
         if mm = 1
             WinMaximize "ahk_id " hwnd
         else if mm = -1
@@ -339,19 +393,19 @@ PositionRightMonitor(mon, calHwnd, schedHwnd) {
 }
 
 ; Both maximized on the left monitor; Outlook on top, Gmail directly
-; beneath so closing Outlook reveals a full-monitor Gmail.
+; beneath so closing Outlook reveals a full-monitor Gmail. Z-order is
+; enforced with SetWindowPos because WinActivate can be blocked by
+; foreground-lock when the user is interacting with another window.
 StackLeftMonitor(mon, gmailHwnd, outlookHwnd) {
     MonitorGetWorkArea(mon, &l, &t, &r, &b)
     MoveWindowTo(gmailHwnd, l, t, r - l, b - t)
-    WinActivate "ahk_id " gmailHwnd
-    WinWaitActive "ahk_id " gmailHwnd, , 3
     WinMaximize "ahk_id " gmailHwnd
     MoveWindowTo(outlookHwnd, l, t, r - l, b - t)
     WinMaximize "ahk_id " outlookHwnd
-    WinActivate "ahk_id " gmailHwnd
-    Sleep 150
-    WinActivate "ahk_id " outlookHwnd
-    WinWaitActive "ahk_id " outlookHwnd, , 3
+    try WinActivate "ahk_id " outlookHwnd
+    flags := 0x1 | 0x2 | 0x10  ; SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE
+    DllCall("SetWindowPos", "ptr", outlookHwnd, "ptr", 0, "int", 0, "int", 0, "int", 0, "int", 0, "uint", flags)
+    DllCall("SetWindowPos", "ptr", gmailHwnd, "ptr", outlookHwnd, "int", 0, "int", 0, "int", 0, "int", 0, "uint", flags)
 }
 
 ; ------------------------------------------------------------- open / close
@@ -401,6 +455,7 @@ OpenDashboard() {
         if outlook && !owned
             RestoreOutlook(outlook, px, py, pw, ph, pmm)
         StateClear()
+        LogError("open failed: " err.Message " (" err.What ", line " err.Line ")")
         TrayNote("Dashboard failed to open: " err.Message)
     }
 }
@@ -430,4 +485,11 @@ CloseDashboard() {
 
 TrayNote(msg) {
     TrayTip msg, "Morning Dashboard"
+}
+
+LogError(msg) {
+    try {
+        DirCreate RepoRoot "\.state"
+        FileAppend FormatTime(, "yyyy-MM-dd HH:mm:ss") " " msg "`n", RepoRoot "\.state\dashboard.log"
+    }
 }
