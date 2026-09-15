@@ -193,12 +193,35 @@ if ($code -ne 0) { Warn 'Could not set core.hooksPath (git cannot use this check
 # --- 8. Startup entry -------------------------------------------------------------
 Step 'Registering hotkey daemon in Startup'
 $script = Join-Path $RepoRoot 'src\dashboard.ahk'
+
+# A machine-local launcher retries until the repo is reachable, so logon
+# autostart survives a WSL/network checkout that is still starting up.
+$launcherDir = Join-Path $env:LOCALAPPDATA 'MorningDashboard'
+New-Item -ItemType Directory -Force -Path $launcherDir | Out-Null
+$launcher = Join-Path $launcherDir 'launcher.ahk'
+@"
+#Requires AutoHotkey v2.0
+#NoTrayIcon
+; Written by install.ps1. Waits for the repo to become reachable, then
+; starts the Morning Dashboard tray daemon and exits.
+scriptPath := "$script"
+deadline := A_TickCount + 120000
+while A_TickCount < deadline {
+    if FileExist(scriptPath) {
+        Run '"' A_AhkPath '" "' scriptPath '"'
+        ExitApp
+    }
+    Sleep 3000
+}
+ExitApp
+"@ | Set-Content -Path $launcher -Encoding ASCII
+
 $startup = [Environment]::GetFolderPath('Startup')
 $lnkPath = Join-Path $startup 'Morning Dashboard.lnk'
 $shell = New-Object -ComObject WScript.Shell
 $lnk = $shell.CreateShortcut($lnkPath)
 $lnk.TargetPath = $ahk
-$lnk.Arguments = '"' + $script + '"'
+$lnk.Arguments = '"' + $launcher + '"'
 $lnk.Description = 'Morning Dashboard hotkey daemon'
 $lnk.Save()
 Step "Startup shortcut: $lnkPath"

@@ -28,13 +28,14 @@ return
 
 SetupTray() {
     A_IconTip := "Morning Dashboard"
+    try TraySetIcon(RepoRoot "\assets\dashboard.ico")
     tray := A_TrayMenu
     tray.Delete()
     tray.Add("Open Morning Dashboard", (*) => Guard(OpenDashboard))
     tray.Add("Close Morning Dashboard", (*) => Guard(CloseDashboard))
     tray.Add("Toggle Morning Dashboard", (*) => Guard(ToggleDashboard))
     tray.Add()
-    tray.Add("Exit", (*) => ExitApp())
+    tray.Add("Exit (until next login)", (*) => ExitApp())
     tray.Default := "Toggle Morning Dashboard"
 }
 
@@ -388,8 +389,29 @@ RestoreOutlook(hwnd, x, y, w, h, mm) {
 PositionRightMonitor(mon, calHwnd, schedHwnd) {
     MonitorGetWorkArea(mon, &l, &t, &r, &b)
     w := r - l, h := b - t, half := w // 2
-    MoveWindowTo(calHwnd, l, t, half, h)
-    MoveWindowTo(schedHwnd, l + half, t, w - half, h)
+    MoveWindowVisible(calHwnd, l, t, half, h)
+    MoveWindowVisible(schedHwnd, l + half, t, w - half, h)
+}
+
+; Positions a window so its VISIBLE frame fills the target rectangle.
+; GetWindowRect includes invisible resize borders, so a plain WinMove
+; leaves gaps; compensate with the DWM extended frame bounds, like Snap.
+MoveWindowVisible(hwnd, x, y, w, h) {
+    MoveWindowTo(hwnd, x, y, w, h)
+    if !hwnd || !WinExist("ahk_id " hwnd)
+        return
+    rect := Buffer(16, 0)
+    if !DllCall("GetWindowRect", "ptr", hwnd, "ptr", rect)
+        return
+    ext := Buffer(16, 0)
+    if DllCall("dwmapi\DwmGetWindowAttribute", "ptr", hwnd, "uint", 9, "ptr", ext, "uint", 16, "uint")
+        return  ; DWMWA_EXTENDED_FRAME_BOUNDS unsupported; keep plain placement
+    il := NumGet(ext, 0, "int") - NumGet(rect, 0, "int")
+    it := NumGet(ext, 4, "int") - NumGet(rect, 4, "int")
+    ir := NumGet(rect, 8, "int") - NumGet(ext, 8, "int")
+    ib := NumGet(rect, 12, "int") - NumGet(ext, 12, "int")
+    if il || it || ir || ib
+        WinMove x - il, y - it, w + il + ir, h + it + ib, "ahk_id " hwnd
 }
 
 ; Both maximized on the left monitor; Outlook on top, Gmail directly

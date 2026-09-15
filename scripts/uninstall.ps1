@@ -44,6 +44,8 @@ Get-CimInstance Win32_Process -Filter "Name LIKE 'AutoHotkey%'" |
 Step 'Removing Startup entry'
 $lnkPath = Join-Path ([Environment]::GetFolderPath('Startup')) 'Morning Dashboard.lnk'
 if (Test-Path $lnkPath) { Remove-Item $lnkPath -Force }
+$launcherDir = Join-Path $env:LOCALAPPDATA 'MorningDashboard'
+if (Test-Path $launcherDir) { Remove-Item $launcherDir -Recurse -Force }
 
 Step 'Removing runtime state'
 $stateDir = Join-Path $RepoRoot '.state'

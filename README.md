@@ -29,7 +29,7 @@ Requires Windows 11, two monitors, Brave, and Outlook. The installer fetches Aut
    .\scripts\install.ps1 -ScheduleImagePath "C:\Users\you\Pictures\schedule.jpg"
    ```
 
-The hotkey daemon starts immediately and registers itself in your Startup folder.
+The daemon starts immediately and registers itself in your Startup folder. It lives only in the system tray: right-click the sunrise icon to open, close, or toggle the dashboard, or pick Exit to dismiss it until your next sign-in.
 
 ## Configuration
 
