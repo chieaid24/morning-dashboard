@@ -152,7 +152,7 @@ Executable=$classicOutlook
 AppId=$newOutlookAppId
 
 [Calendar]
-Url=https://calendar.google.com/calendar/u/0/r
+Url=https://calendar.google.com/calendar/u/0/r/day
 
 [Gmail]
 Url1=https://mail.google.com/mail/u/1/#inbox

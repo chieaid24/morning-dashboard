@@ -299,7 +299,7 @@ OpenGmailWindow() {
 }
 
 OpenCalendarWindow() {
-    url := Cfg("Calendar", "Url", "https://calendar.google.com/calendar/u/0/r")
+    url := Cfg("Calendar", "Url", "https://calendar.google.com/calendar/u/0/r/day")
     return LaunchBraveWindow('--app="' url '"', "Calendar")
 }
 
