@@ -1,0 +1,16 @@
+#!/bin/sh
+# Blocks commits that would expose private or runtime files.
+
+staged=$(git diff --cached --name-only)
+tracked=$(git ls-files)
+
+bad_staged=$(printf '%s\n' "$staged" | grep -Ei '^\.private/|^\.state/|(^|/)config\.local\.ini$|\.log$|WEEKLY SCHEDULE\.jpg$')
+bad_tracked=$(printf '%s\n' "$tracked" | grep -Ei '^\.private/|^\.state/|WEEKLY SCHEDULE\.jpg$')
+
+if [ -n "$bad_staged" ] || [ -n "$bad_tracked" ]; then
+    echo 'pre-commit: refusing to commit private or runtime files:' >&2
+    printf '%s\n%s\n' "$bad_staged" "$bad_tracked" | sort -u | sed '/^$/d' >&2
+    exit 1
+fi
+
+exit 0

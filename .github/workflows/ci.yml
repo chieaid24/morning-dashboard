@@ -1,0 +1,47 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Privacy checks
+        run: |
+          set -eu
+          fail=0
+          if git ls-files | grep -Ei '^\.private/|^\.state/|WEEKLY SCHEDULE\.jpg$|(^|/)config\.local\.ini$'; then
+            echo 'Private or runtime files are tracked.' >&2
+            fail=1
+          fi
+          if git grep -nIP 'C:\\Users\\(?!you\b)' -- .; then
+            echo 'A tracked file contains a real user-profile path.' >&2
+            fail=1
+          fi
+          exit $fail
+
+      - name: Required files exist
+        run: |
+          set -eu
+          for f in src/dashboard.ahk viewer/schedule.html config/config.example.ini \
+                   scripts/install.ps1 scripts/uninstall.ps1 \
+                   scripts/set-schedule-image.ps1 scripts/verify-privacy.ps1 \
+                   .githooks/pre-commit .gitignore LICENSE README.md; do
+            test -f "$f" || { echo "missing: $f" >&2; exit 1; }
+          done
+
+      - name: PowerShell syntax
+        shell: pwsh
+        run: |
+          $errs = @()
+          Get-ChildItem scripts/*.ps1 | ForEach-Object {
+            $tokens = $null; $parseErrors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$parseErrors)
+            if ($parseErrors) { $errs += $parseErrors }
+          }
+          if ($errs) { $errs | Out-String | Write-Host; exit 1 }

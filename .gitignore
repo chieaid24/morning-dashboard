@@ -1,0 +1,5 @@
+.private/
+.state/
+config.local.ini
+config/config.local.ini
+*.log
